@@ -1,6 +1,6 @@
 class ApiConstants {
-  // Updated for physical phone USB bridge
-  static const String baseUrl = 'http://10.49.225.147:3000/api';
+
+  static const String baseUrl = 'https://krushimitra-backend-732m.onrender.com/api';
 
   static const String login = '/auth/login';
   static const String register = '/auth/register';

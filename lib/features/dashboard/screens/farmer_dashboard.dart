@@ -20,23 +20,35 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
   int _listingCount = 0;
   bool _isLoadingMetrics = true;
 
+  // Cache the weather future so it doesn't refetch on every setState rebuild
+  late Future<Map<String, dynamic>?> _weatherFuture;
+
   @override
   void initState() {
     super.initState();
+    _weatherFuture = WeatherService.getWeather(); // Fetch weather exactly ONCE
     _loadDashboardMetrics();
   }
 
   Future<void> _loadDashboardMetrics() async {
     try {
-      final crops = await CropService.getCrops();
-      final enquiries = await MarketplaceService.getFarmerEnquiries();
-      final listings = await MarketplaceService.getFarmerListings();
+      // Fetch all three APIs simultaneously to cut loading time by 66%
+      final results = await Future.wait([
+        CropService.getCrops(),
+        MarketplaceService.getFarmerEnquiries(),
+        MarketplaceService.getFarmerListings(),
+      ]);
 
       if (!mounted) return;
+
+      final crops = results[0] as List<dynamic>? ?? [];
+      final enquiries = results[1] as List<dynamic>? ?? [];
+      final listings = results[2] as List<dynamic>? ?? [];
+
       setState(() {
         _cropCount = crops.length;
-        _pendingEnquiryCount = enquiries?.where((e) => e['status'] == 'PENDING').length ?? 0;
-        _listingCount = listings?.length ?? 0;
+        _pendingEnquiryCount = enquiries.where((e) => e['status'] == 'PENDING').length;
+        _listingCount = listings.length;
         _isLoadingMetrics = false;
       });
     } catch (e) {
@@ -134,8 +146,12 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
       body: RefreshIndicator(
         color: primaryColor,
         onRefresh: () async {
+          // Re-fetch weather AND metrics cleanly on pull-to-refresh
+          setState(() {
+            _weatherFuture = WeatherService.getWeather();
+            _isLoadingMetrics = true;
+          });
           await _loadDashboardMetrics();
-          setState(() {});
         },
         child: SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
@@ -188,7 +204,7 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
 
               // 1. Weather Advisory Card
               FutureBuilder<Map<String, dynamic>?>(
-                future: WeatherService.getWeather(),
+                future: _weatherFuture, // Use the cached future
                 builder: (context, snapshot) {
                   if (snapshot.connectionState == ConnectionState.waiting) {
                     return const SizedBox(height: 100, child: Center(child: CircularProgressIndicator()));
@@ -365,7 +381,9 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
         border: Border.all(color: Colors.grey.shade200),
         boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 4, offset: const Offset(0, 2))],
       ),
-      child: Column(
+      child: _isLoadingMetrics
+          ? SizedBox(height: 48, width: 24, child: Center(child: CircularProgressIndicator(color: color, strokeWidth: 2)))
+          : Column(
         children: [
           Icon(icon, color: color, size: 20),
           const SizedBox(height: 6),
@@ -440,7 +458,7 @@ class _FarmerDashboardScreenState extends State<FarmerDashboardScreen> {
                       Expanded(
                         child: Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Color(0xFF0F172A))),
                       ),
-                      if (badgeCount > 0)
+                      if (badgeCount > 0 && !_isLoadingMetrics)
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                           decoration: BoxDecoration(
